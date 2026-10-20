@@ -14,11 +14,16 @@ import { Effect, Ref } from "effect"
 import * as CoreAssets from "../../../Assets.js"
 import * as TxOut from "../../../TxOut.js"
 import * as UTxO from "../../../UTxO.js"
-import {
-  calculateMinimumUtxoLovelace
-} from "../internal/txBuilder.js"
+import { calculateMinimumUtxoLovelace } from "../internal/txBuilder.js"
 import type { PhaseResult } from "../TransactionBuilder.js"
-import { AvailableUtxosTag, BuildOptionsTag, ChangeAddressTag, ProtocolParametersTag, TransactionBuilderError, TxContext } from "../TransactionBuilder.js"
+import {
+  AvailableUtxosTag,
+  BuildOptionsTag,
+  ChangeAddressTag,
+  ProtocolParametersTag,
+  TransactionBuilderError,
+  TxContext
+} from "../TransactionBuilder.js"
 
 // ============================================================================
 // Constants
@@ -193,9 +198,26 @@ export const executeCollateral = (): Effect.Effect<
         `[Collateral] Selected UTxO: ${UTxO.toOutRefString(utxo)} (${CoreAssets.lovelaceOf(utxo.assets)} lovelace)`
       )
 
-      // Check if we have enough
+      // Cover both the fixed collateral target and a valid return output.
+      // A covering input can leave dust; extend the same candidate prefix
+      // rather than rejecting while another eligible input is available.
       if (totalLovelace >= targetCollateral) {
-        break
+        const remaining = totalLovelace - targetCollateral
+        if (remaining === 0n && !CoreAssets.hasMultiAsset(totalAssets)) {
+          break
+        }
+
+        const minimumReturn = yield* calculateMinimumUtxoLovelace({
+          address: changeAddress,
+          assets: CoreAssets.withLovelace(totalAssets, remaining),
+          datum: undefined,
+          scriptRef: undefined,
+          coinsPerUtxoByte: protocolParams.coinsPerUtxoByte,
+          codecOptions: buildOptions.codecOptions
+        })
+        if (remaining >= minimumReturn) {
+          break
+        }
       }
     }
 
